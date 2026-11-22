@@ -1,0 +1,37 @@
+# Python virtual environments
+.venv/
+venv/
+env/
+perIDE/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Large pre-trained model binaries (>100MB blocked by GitHub)
+# Download using: python download_models.py
+models/*.onnx
+models/.cache/
+!models/.gitkeep
+
+# Local database, biometric embeddings, and runtime photo captures
+data/profiles/*
+!data/profiles/.gitkeep
+data/unknown/*
+!data/unknown/.gitkeep
+data/*.npz
+data/db.json
+data/unknown_meta.json
+data/access_logs.json
+
+# Local runtime snapshots and configs
+snapshots/
+config/roi_config.json
+TTSOL-*.mp3
+
+# IDE and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

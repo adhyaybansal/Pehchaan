@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Face Recognition Door Access Control</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  <style>
+    :root {
+      --bg-dark: #0f172a;
+      --card-bg: #1e293b;
+      --border-color: #334155;
+      --accent-color: #38bdf8;
+    }
+    body {
+      background-color: var(--bg-dark);
+      color: #f8fafc;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    .card {
+      background-color: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      box-shadow: 0 4px 6px -1px rgba(0,0,0,0.2);
+    }
+    .video-container {
+      position: relative;
+      width: 100%;
+      border-radius: 10px;
+      overflow: hidden;
+      background: #000;
+      text-align: center;
+    }
+    .video-wrapper {
+      position: relative;
+      display: inline-block;
+      max-width: 100%;
+      line-height: 0;
+    }
+    .video-wrapper img {
+      display: block;
+      width: 100%;
+      height: auto;
+      max-height: 520px;
+      border-radius: 8px;
+    }
+    .video-wrapper canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      cursor: crosshair;
+      z-index: 10;
+    }
+    .door-badge {
+      font-size: 1.1rem;
+      padding: 0.5rem 1.2rem;
+      border-radius: 30px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+    .door-locked {
+      background: rgba(239, 68, 68, 0.2);
+      color: #ef4444;
+      border: 1px solid #ef4444;
+    }
+    .door-unlocked {
+      background: rgba(34, 197, 94, 0.2);
+      color: #22c55e;
+      border: 1px solid #22c55e;
+      animation: pulse 1s infinite alternate;
+    }
+    @keyframes pulse {
+      from { box-shadow: 0 0 5px #22c55e; }
+      to { box-shadow: 0 0 20px #22c55e; }
+    }
+    .unknown-card {
+      background: #0f172a;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      overflow: hidden;
+      transition: transform 0.2s;
+    }
+    .unknown-card:hover {
+      transform: translateY(-2px);
+    }
+    .unknown-card img {
+      width: 100%;
+      height: 130px;
+      object-fit: cover;
+      background: #1e293b;
+    }
+    .log-table {
+      font-size: 0.88rem;
+    }
+    .log-table th {
+      border-color: var(--border-color);
+      color: #94a3b8;
+    }
+    .log-table td {
+      border-color: var(--border-color);
+      color: #e2e8f0;
+      vertical-align: middle;
+    }
+    .nav-tabs .nav-link {
+      color: #94a3b8;
+      border: none;
+      border-bottom: 2px solid transparent;
+      padding: 0.75rem 1.25rem;
+    }
+    .nav-tabs .nav-link.active {
+      color: var(--accent-color);
+      background: transparent;
+      border-color: var(--accent-color);
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body class="p-3 p-lg-4">
+  <div class="container-fluid max-w-7xl">
+    <!-- Header -->
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 pb-3 border-bottom border-secondary">
+      <div>
+        <h3 class="fw-bold mb-1"><i class="bi bi-shield-lock-fill text-info me-2"></i>Face Recognition Door Access</h3>
+        <p class="text-secondary mb-0">Local AI Access Control &bull; YuNet Face Finder &bull; AuraFace Embeddings</p>
+      </div>
+      <div class="d-flex align-items-center gap-3 mt-3 mt-md-0">
+        <span id="doorStatusBadge" class="door-badge door-locked">
+          <i class="bi bi-lock-fill me-1"></i> DOOR LOCKED
+        </span>
+        <button id="manualUnlockBtn" class="btn btn-outline-success btn-sm px-3" onclick="manualUnlock()">
+          <i class="bi bi-unlock-fill me-1"></i> Manual Open (5s)
+        </button>
+        <button id="audioToggleBtn" class="btn btn-outline-info btn-sm px-3" onclick="toggleAudio()">
+          <i class="bi bi-volume-up-fill me-1"></i> Voice: ON
+        </button>
+      </div>
+    </div>
+
+    <!-- Main Grid -->
+    <div class="row g-4">
+      <!-- Left Column: Video & ROI Setup -->
+      <div class="col-lg-7">
+        <div class="card p-3">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <h6 class="fw-bold mb-0"><i class="bi bi-camera-video text-info me-2"></i>Live Stream &amp; ROI Zone</h6>
+            <span class="badge bg-secondary" id="roiStatusLabel">Mode: Full Frame</span>
+          </div>
+
+          <!-- Video Stream with Interactive ROI Canvas -->
+          <div class="video-container" id="videoBox">
+            <div class="video-wrapper">
+              <img id="streamImg" src="/video_feed" alt="Camera Stream" />
+              <canvas id="roiCanvas"></canvas>
+            </div>
+          </div>
+
+          <!-- ROI Controls -->
+          <div class="mt-3 p-2 bg-dark rounded border border-secondary d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div>
+              <span class="small text-secondary me-2">
+                <i class="bi bi-info-circle text-info"></i> Click 4 points on the video above to set the active door area:
+              </span>
+              <span id="pointsCounter" class="badge bg-primary">0 / 4 points</span>
+            </div>
+            <div class="d-flex gap-2">
+              <button class="btn btn-sm btn-outline-secondary" onclick="resetROI()">
+                <i class="bi bi-arrow-counterclockwise"></i> Reset
+              </button>
+              <button id="saveRoiBtn" class="btn btn-sm btn-info text-dark fw-bold" onclick="saveROI()" disabled>
+                <i class="bi bi-check-lg"></i> Apply ROI
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Column: Tabs (Unknowns, People, Logs, Settings) -->
+      <div class="col-lg-5">
+        <div class="card">
+          <div class="card-header border-bottom border-secondary bg-transparent p-2">
+            <ul class="nav nav-tabs card-header-tabs" id="mainTabs" role="tablist">
+              <li class="nav-item">
+                <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-unknowns" type="button">
+                  <i class="bi bi-person-exclamation text-warning me-1"></i> Unknowns
+                  <span id="unknownsCount" class="badge bg-warning text-dark ms-1">0</span>
+                </button>
+              </li>
+              <li class="nav-item">
+                <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-people" type="button">
+                  <i class="bi bi-people-fill text-success me-1"></i> People
+                  <span id="peopleCount" class="badge bg-success ms-1">0</span>
+                </button>
+              </li>
+              <li class="nav-item">
+                <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-logs" type="button">
+                  <i class="bi bi-clock-history text-info me-1"></i> Access Logs
+                </button>
+              </li>
+              <li class="nav-item">
+                <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-settings" type="button">
+                  <i class="bi bi-gear-fill me-1"></i> Settings
+                </button>
+              </li>
+            </ul>
+          </div>
+
+          <div class="card-body p-3">
+            <div class="tab-content">
+              <!-- Tab 1: Unknowns -->
+              <div class="tab-pane fade show active" id="tab-unknowns">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                  <span class="small text-secondary">Click a snap below to tag them with a name:</span>
+                  <button class="btn btn-sm btn-outline-secondary" onclick="loadUnknowns()"><i class="bi bi-arrow-clockwise"></i></button>
+                </div>
+                <div id="unknownsGrid" class="row g-2 overflow-auto" style="max-height: 480px;">
+                  <div class="col-12 text-center text-muted py-5">
+                    <i class="bi bi-emoji-smile fs-2 d-block mb-2"></i>
+                    No unknown faces captured yet.
+                  </div>
+                </div>
+              </div>
+
+              <!-- Tab 2: Enrolled People -->
+              <div class="tab-pane fade" id="tab-people">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                  <span class="small text-secondary">Authorized personnel allowed to unlock:</span>
+                  <button class="btn btn-sm btn-outline-secondary" onclick="loadPeople()"><i class="bi bi-arrow-clockwise"></i></button>
+                </div>
+                <div id="peopleList" class="d-flex flex-column gap-2 overflow-auto" style="max-height: 480px;">
+                  <div class="text-center text-muted py-5">
+                    <i class="bi bi-person-x fs-2 d-block mb-2"></i>
+                    No authorized people enrolled yet.
+                  </div>
+                </div>
+              </div>
+
+              <!-- Tab 3: Access Logs -->
+              <div class="tab-pane fade" id="tab-logs">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                  <span class="small text-secondary">Recent access attempts:</span>
+                  <button class="btn btn-sm btn-outline-secondary" onclick="loadLogs()"><i class="bi bi-arrow-clockwise"></i></button>
+                </div>
+                <div class="table-responsive overflow-auto" style="max-height: 480px;">
+                  <table class="table table-dark table-hover log-table mb-0">
+                    <thead>
+                      <tr>
+                        <th>Time</th>
+                        <th>Name</th>
+                        <th>Confidence</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody id="logsTableBody">
+                      <tr>
+                        <td colspan="4" class="text-center text-muted py-4">No access attempts logged yet.</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <!-- Tab 4: Settings -->
+              <div class="tab-pane fade" id="tab-settings">
+                <h6 class="fw-bold mb-3 text-info">System Configuration</h6>
+                <div class="mb-3">
+                  <label class="form-label small text-secondary">AuraFace Match Threshold (Cosine Similarity)</label>
+                  <div class="d-flex align-items-center gap-2">
+                    <input type="range" class="form-range" id="thresholdSlider" min="0.30" max="0.75" step="0.01" value="0.50" oninput="updateThresholdLabel(this.value)">
+                    <span id="thresholdVal" class="fw-bold text-info" style="min-width: 40px;">0.50</span>
+                  </div>
+                  <div class="form-text text-secondary small">Standard threshold is 0.50. Increase for stricter match.</div>
+                </div>
+                <div class="mb-3">
+                  <label class="form-label small text-secondary">ESP32 / Relay HTTP Webhook URL</label>
+                  <input type="text" id="webhookInput" class="form-control form-control-sm bg-dark text-white border-secondary" placeholder="http://192.168.1.100/unlock">
+                  <div class="form-text text-secondary small">Sent on access grant to unlock hardware relay.</div>
+                </div>
+                <button class="btn btn-sm btn-outline-info" onclick="saveSettings()">Save Settings</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tagging Modal -->
+  <div class="modal fade" id="tagModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content bg-dark border border-secondary text-white">
+        <div class="modal-header border-secondary">
+          <h5 class="modal-title"><i class="bi bi-person-plus text-info me-2"></i>Tag Unknown Person</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body text-center">
+          <img id="modalSnapImg" src="" class="rounded border border-secondary mb-3" style="max-height: 180px;" />
+          <div class="text-start mb-3">
+            <label class="form-label small text-secondary">Person's Full Name:</label>
+            <input type="text" id="personNameInput" list="existingProfilesDatalist" class="form-control bg-dark text-white border-secondary mb-2" placeholder="Type a new name or select existing..." autofocus autocomplete="off">
+            <datalist id="existingProfilesDatalist"></datalist>
+
+            <!-- Quick Profile Selection Pills -->
+            <div id="existingProfilesPills" class="d-flex flex-wrap gap-1 mt-2"></div>
+          </div>
+          <div class="form-text text-secondary text-start small">
+            <i class="bi bi-info-circle text-info me-1"></i> Type a new name to create a profile, or choose an existing person to add another face sample (up to 5 samples per person).
+          </div>
+        </div>
+        <div class="modal-footer border-secondary">
+          <button type="button" class="btn btn-outline-danger btn-sm" onclick="dismissUnknown()">Dismiss</button>
+          <button type="button" class="btn btn-info btn-sm text-dark fw-bold" onclick="confirmTag()">Tag &amp; Authorize</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    let roiPoints = [];
+    let canvas, ctx, streamImg;
+    let voiceEnabled = true;
+    let currentTagSnapId = null;
+    let tagModal = null;
+    let lastSpokenEventId = null;
+    let enrolledPeople = [];
+
+    // Custom Audio file for door locked event
+    const audioDoorLocked = new Audio('/audio/door_locked.mp3');
+    let prevDoorUnlocked = false;
+    let initialPoll = true;
+
+    window.onload = function() {
+      canvas = document.getElementById("roiCanvas");
+      ctx = canvas.getContext("2d");
+      streamImg = document.getElementById("streamImg");
+      tagModal = new bootstrap.Modal(document.getElementById("tagModal"));
+
+      resizeCanvas();
+      streamImg.onload = resizeCanvas;
+      window.addEventListener("resize", resizeCanvas);
+      canvas.addEventListener("click", handleCanvasClick);
+
+      // Pre-load audio and prime speech synthesis on first user click to satisfy browser autoplay policy
+      document.addEventListener("click", function() {
+        audioDoorLocked.load();
+        if ('speechSynthesis' in window) {
+          window.speechSynthesis.resume();
+          const prime = new SpeechSynthesisUtterance('');
+          window.speechSynthesis.speak(prime);
+        }
+      }, { once: true });
+
+      fetchROI();
+      loadUnknowns();
+      loadPeople();
+      loadLogs();
+
+      // Poll updates
+      setInterval(pollStatus, 1000);
+      setInterval(loadUnknowns, 3000);
+      setInterval(loadLogs, 2500);
+    };
+
+    function resizeCanvas() {
+      const rect = streamImg.getBoundingClientRect();
+      canvas.width = Math.round(rect.width) || 640;
+      canvas.height = Math.round(rect.height) || 480;
+      drawROI();
+    }
+
+    function getStreamDimensions() {
+      const w = streamImg.naturalWidth || 640;
+      const h = streamImg.naturalHeight || 480;
+      return { w, h };
+    }
+
+    function sortPointsClockwise(pts) {
+      if (pts.length < 3) return pts;
+      const cx = pts.reduce((sum, p) => sum + p[0], 0) / pts.length;
+      const cy = pts.reduce((sum, p) => sum + p[1], 0) / pts.length;
+      return pts.slice().sort((a, b) => Math.atan2(a[1] - cy, a[0] - cx) - Math.atan2(b[1] - cy, b[0] - cx));
+    }
+
+    function handleCanvasClick(e) {
+      if (roiPoints.length >= 4) return;
+      const rect = canvas.getBoundingClientRect();
+      const dims = getStreamDimensions();
+      const scaleX = dims.w / rect.width;
+      const scaleY = dims.h / rect.height;
+
+      const clickX = Math.round((e.clientX - rect.left) * scaleX);
+      const clickY = Math.round((e.clientY - rect.top) * scaleY);
+
+      roiPoints.push([clickX, clickY]);
+      if (roiPoints.length === 4) {
+        roiPoints = sortPointsClockwise(roiPoints);
+      }
+      updatePointsUI();
+      drawROI();
+    }
+
+    function updatePointsUI() {
+      document.getElementById("pointsCounter").textContent = `${roiPoints.length} / 4 points`;
+      document.getElementById("saveRoiBtn").disabled = roiPoints.length !== 4;
+    }
+
+    function drawROI() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (roiPoints.length === 0) return;
+
+      const dims = getStreamDimensions();
+      const scaleX = canvas.width / dims.w;
+      const scaleY = canvas.height / dims.h;
+
+      // Draw points
+      roiPoints.forEach((pt, idx) => {
+        const px = pt[0] * scaleX;
+        const py = pt[1] * scaleY;
+        ctx.fillStyle = "#ef4444";
+        ctx.beginPath();
+        ctx.arc(px, py, 5, 0, 2 * Math.PI);
+        ctx.fill();
+
+        ctx.fillStyle = "#f8fafc";
+        ctx.font = "12px sans-serif";
+        ctx.fillText(`P${idx + 1}`, px + 8, py - 4);
+      });
+
+      // Draw polygon if 4 points
+      if (roiPoints.length === 4) {
+        ctx.strokeStyle = "#38bdf8";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(roiPoints[0][0] * scaleX, roiPoints[0][1] * scaleY);
+        for (let i = 1; i < 4; i++) {
+          ctx.lineTo(roiPoints[i][0] * scaleX, roiPoints[i][1] * scaleY);
+        }
+        ctx.closePath();
+        ctx.stroke();
+
+        ctx.fillStyle = "rgba(56, 189, 248, 0.15)";
+        ctx.fill();
+      }
+    }
+
+    function resetROI() {
+      roiPoints = [];
+      updatePointsUI();
+      drawROI();
+      fetch("/api/roi", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({points: []})
+      }).then(() => {
+        document.getElementById("roiStatusLabel").textContent = "Mode: Full Frame";
+      });
+    }
+
+    function saveROI() {
+      if (roiPoints.length !== 4) return;
+      fetch("/api/roi", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({points: roiPoints})
+      }).then(r => r.json()).then(data => {
+        document.getElementById("roiStatusLabel").textContent = "Mode: ROI Active";
+      });
+    }
+
+    function fetchROI() {
+      fetch("/api/roi").then(r => r.json()).then(data => {
+        if (data.points && data.points.length === 4) {
+          roiPoints = data.points;
+          updatePointsUI();
+          drawROI();
+          document.getElementById("roiStatusLabel").textContent = "Mode: ROI Active";
+        }
+      });
+    }
+
+    function toggleAudio() {
+      voiceEnabled = !voiceEnabled;
+      document.getElementById("audioToggleBtn").innerHTML = voiceEnabled
+        ? `<i class="bi bi-volume-up-fill me-1"></i> Voice: ON`
+        : `<i class="bi bi-volume-mute-fill me-1"></i> Voice: OFF`;
+      document.getElementById("audioToggleBtn").className = voiceEnabled
+        ? "btn btn-outline-info btn-sm px-3"
+        : "btn btn-outline-secondary btn-sm px-3";
+    }
+
+    function speakAnnouncement(text) {
+      if (!voiceEnabled || !('speechSynthesis' in window)) return;
+      try {
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.resume();
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.rate = 1.0;
+        utterance.pitch = 1.0;
+        window.speechSynthesis.speak(utterance);
+      } catch (err) {
+        console.warn("Speech synthesis error:", err);
+      }
+    }
+
+    function manualUnlock() {
+      fetch("/api/door/unlock", {method: "POST"})
+        .then(r => r.json())
+        .then(() => pollStatus());
+    }
+
+    function pollStatus() {
+      fetch("/api/status").then(r => r.json()).then(data => {
+        const badge = document.getElementById("doorStatusBadge");
+        const isUnlocked = data.door.is_unlocked;
+
+        if (isUnlocked) {
+          badge.className = "door-badge door-unlocked";
+          badge.innerHTML = `<i class="bi bi-unlock-fill me-1"></i> DOOR UNLOCKED (${data.door.remaining_seconds}s)`;
+        } else {
+          badge.className = "door-badge door-locked";
+          badge.innerHTML = `<i class="bi bi-lock-fill me-1"></i> DOOR LOCKED`;
+        }
+
+        // Play custom MP3 audio when door relocks
+        if (!initialPoll && voiceEnabled) {
+          if (!isUnlocked && prevDoorUnlocked) {
+            // Door transitioned to LOCKED: play TTSOL-en-US-Ava-20261123-031359.mp3
+            audioDoorLocked.currentTime = 0;
+            audioDoorLocked.play().catch(e => console.log("Audio lock play:", e));
+          }
+        }
+
+        prevDoorUnlocked = isUnlocked;
+        initialPoll = false;
+
+        // Voice announcement check: announce person name aloud immediately
+        if (data.latest_event && data.latest_event.id !== lastSpokenEventId) {
+          lastSpokenEventId = data.latest_event.id;
+          if (data.latest_event.status === "ALLOWED") {
+            speakAnnouncement(`${data.latest_event.name} allowed access`);
+          }
+        }
+      });
+    }
+
+    function loadUnknowns() {
+      fetch("/api/unknowns").then(r => r.json()).then(items => {
+        document.getElementById("unknownsCount").textContent = items.length;
+        const grid = document.getElementById("unknownsGrid");
+        if (items.length === 0) {
+          grid.innerHTML = `
+            <div class="col-12 text-center text-muted py-5">
+              <i class="bi bi-emoji-smile fs-2 d-block mb-2"></i>
+              No unknown faces captured yet.
+            </div>`;
+          return;
+        }
+
+        grid.innerHTML = items.map(u => `
+          <div class="col-6 col-md-4">
+            <div class="unknown-card p-2 text-center cursor-pointer" onclick="openTagModal('${u.id}', '${u.crop_filename}')">
+              <img src="/snaps/unknown/${u.crop_filename}" class="rounded mb-2" alt="Unknown Face" />
+              <div class="small fw-bold text-warning mb-1">Unknown Person</div>
+              <div class="text-secondary" style="font-size: 0.72rem;">${u.datetime_str.split(' ')[1]}</div>
+              <button class="btn btn-outline-info btn-sm w-100 mt-2 py-0" style="font-size: 0.75rem;">
+                <i class="bi bi-tag-fill me-1"></i> Tag
+              </button>
+            </div>
+          </div>
+        `).join("");
+      });
+    }
+
+    function openTagModal(id, cropFilename) {
+      currentTagSnapId = id;
+      document.getElementById("modalSnapImg").src = `/snaps/unknown/${cropFilename}`;
+      document.getElementById("personNameInput").value = "";
+      updateProfilesDropdown();
+      tagModal.show();
+      setTimeout(() => document.getElementById("personNameInput").focus(), 400);
+    }
+
+    function updateProfilesDropdown() {
+      const datalist = document.getElementById("existingProfilesDatalist");
+      const pillsContainer = document.getElementById("existingProfilesPills");
+      if (!datalist || !pillsContainer) return;
+
+      datalist.innerHTML = enrolledPeople.map(p => `<option value="${p.name}">`).join("");
+
+      if (enrolledPeople.length > 0) {
+        pillsContainer.innerHTML = `
+          <div class="w-100 text-secondary small mb-1" style="font-size: 0.72rem;">
+            Existing Profiles (click to add this sample):
+          </div>
+        ` + enrolledPeople.map(p => `
+          <button type="button" class="btn btn-sm btn-outline-info py-0 px-2 rounded-pill" style="font-size: 0.75rem;" onclick="selectProfileName('${p.name}')">
+            <i class="bi bi-person-check me-1"></i>${p.name} <span class="badge bg-secondary ms-1">${p.snap_filenames ? p.snap_filenames.length : 1}/5</span>
+          </button>
+        `).join("");
+      } else {
+        pillsContainer.innerHTML = "";
+      }
+    }
+
+    function selectProfileName(name) {
+      document.getElementById("personNameInput").value = name;
+      document.getElementById("personNameInput").focus();
+    }
+
+    function confirmTag() {
+      const name = document.getElementById("personNameInput").value.trim();
+      if (!name) {
+        alert("Please enter a name for this person.");
+        return;
+      }
+      fetch("/api/tag", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({snap_id: currentTagSnapId, name: name})
+      }).then(r => r.json()).then(data => {
+        tagModal.hide();
+        loadUnknowns();
+        loadPeople();
+      });
+    }
+
+    function dismissUnknown() {
+      if (!currentTagSnapId) return;
+      fetch(`/api/unknowns/${currentTagSnapId}`, {method: "DELETE"}).then(() => {
+        tagModal.hide();
+        loadUnknowns();
+      });
+    }
+
+    function loadPeople() {
+      fetch("/api/people").then(r => r.json()).then(people => {
+        enrolledPeople = people || [];
+        updateProfilesDropdown();
+        document.getElementById("peopleCount").textContent = people.length;
+        const list = document.getElementById("peopleList");
+        if (people.length === 0) {
+          list.innerHTML = `
+            <div class="text-center text-muted py-5">
+              <i class="bi bi-person-x fs-2 d-block mb-2"></i>
+              No authorized people enrolled yet.
+            </div>`;
+          return;
+        }
+
+        list.innerHTML = people.map(p => `
+          <div class="d-flex align-items-center justify-content-between p-2 rounded bg-dark border border-secondary">
+            <div class="d-flex align-items-center gap-3">
+              ${p.snap_filenames && p.snap_filenames.length > 0 
+                ? `<img src="/snaps/profiles/${p.snap_filenames[0]}" class="rounded-circle" style="width: 44px; height: 44px; object-fit: cover;" />`
+                : `<i class="bi bi-person-circle fs-2 text-info"></i>`
+              }
+              <div>
+                <div class="fw-bold">${p.name}</div>
+                <div class="text-secondary small" style="font-size: 0.75rem;">
+                  <i class="bi bi-fingerprint text-info me-1"></i>${p.snap_filenames.length} face sample(s)
+                </div>
+              </div>
+            </div>
+            <button class="btn btn-outline-danger btn-sm" onclick="deletePerson('${p.id}')">
+              <i class="bi bi-trash"></i>
+            </button>
+          </div>
+        `).join("");
+      });
+    }
+
+    function deletePerson(id) {
+      if (!confirm("Remove this person from authorized access?")) return;
+      fetch(`/api/people/${id}`, {method: "DELETE"}).then(() => loadPeople());
+    }
+
+    function loadLogs() {
+      fetch("/api/logs").then(r => r.json()).then(logs => {
+        const tbody = document.getElementById("logsTableBody");
+        if (logs.length === 0) return;
+
+        tbody.innerHTML = logs.slice(0, 15).map(l => `
+          <tr>
+            <td class="text-secondary">${l.datetime_str.split(' ')[1]}</td>
+            <td class="fw-bold">${l.name}</td>
+            <td>${l.confidence > 0 ? (l.confidence * 100).toFixed(0) + '%' : '-'}</td>
+            <td>
+              <span class="badge ${l.status === 'ALLOWED' ? 'bg-success' : 'bg-danger'}">
+                ${l.status}
+              </span>
+            </td>
+          </tr>
+        `).join("");
+      });
+    }
+
+    function updateThresholdLabel(val) {
+      document.getElementById("thresholdVal").textContent = parseFloat(val).toFixed(2);
+    }
+
+    function saveSettings() {
+      const val = parseFloat(document.getElementById("thresholdSlider").value);
+      const url = document.getElementById("webhookInput").value.trim();
+      fetch("/api/settings", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({threshold: val, esp32_url: url})
+      }).then(r => r.json()).then(() => alert("Settings saved!"));
+    }
+  </script>
+</body>
+</html>
